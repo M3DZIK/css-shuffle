@@ -75,11 +75,8 @@ MIT
 
 ---
 
----
-
-**Note:**  
-This tool is intended for code obfuscation and not for security.  
-Use responsibly!
+**Note:**
+This tool is intended for code obfuscation and not for security. Use responsibly!
 
 After obfuscation, **please thoroughly check your obfuscated website for any bugs or issues**.  
 If you notice anything not working as expected, or if you find a bug caused by the obfuscation process, **please create an issue** in the repository with details and, if possible, steps to reproduce.
