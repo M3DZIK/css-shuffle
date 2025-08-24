@@ -1,157 +1,121 @@
 import fs from "fs";
 import { globby } from "globby";
+import * as csstree from "css-tree";
 
-import { exportCSSNames, generateRandomName } from './utils.js'
+import { Renamer } from "./renamer.js";
 
-export async function obfuscate(baseDir: string, outputDir: string): Promise<Map<string, string>> {
-    // copy baseDir to outputDir
-    if (fs.existsSync(outputDir)) {
-        fs.rmSync(outputDir, { recursive: true, force: true });
-    }
-    fs.mkdirSync(outputDir, { recursive: true });
-    fs.cpSync(baseDir, outputDir, { recursive: true });
+export class Obfuscator {
+    private renamer = new Renamer();
 
-    const htmlFiles = await globby(['**/*.html'], { cwd: outputDir, absolute: true });
-    const cssFiles = await globby(['**/*.css'], { cwd: outputDir, absolute: true });
-
-    let cssElementNum = 0;
-
-    const globalClassMap = new Map<string, string>();
-    const globalIdMap = new Map<string, string>();
-    const globalVarMap = new Map<string, string>();
-
-    for (const cssFile of cssFiles) {
-        const cssFileContent = fs.readFileSync(cssFile, "utf8");
-        const { classNames, idNames, varNames } = await exportCSSNames(cssFileContent);
-
-        for (const name of classNames) {
-            if (globalClassMap.has(name)) continue;
-            cssElementNum++;
-            const value = `${generateRandomName(cssElementNum)}`;
-            globalClassMap.set(name, value);
-        }
-        for (const name of idNames) {
-            if (globalIdMap.has(name)) continue;
-            cssElementNum++;
-            const value = `${generateRandomName(cssElementNum)}`;
-            globalIdMap.set(name, value);
-        }
-        for (const name of varNames) {
-            if (globalVarMap.has(name)) continue;
-            cssElementNum++;
-            const value = `${generateRandomName(cssElementNum)}`;
-            globalVarMap.set(name, value);
-        }
+    private obfuscateName(originalName: string): string {
+        return this.renamer.rename(originalName);
     }
 
-    // get styles from <style> tags in html files
-    for (const htmlFile of htmlFiles) {
-        const htmlFileContent = fs.readFileSync(htmlFile, "utf8");
-        const styleTagRegex = /<style[^>]*>([\s\S]*?)<\/style>/gi;
-        let match: RegExpExecArray | null;
-
-        while ((match = styleTagRegex.exec(htmlFileContent)) !== null) {
-            const styleContent = match[1];
-            const { classNames, idNames, varNames } = await exportCSSNames(styleContent);
-
-            for (const name of classNames) {
-                if (globalClassMap.has(name)) continue;
-                cssElementNum++;
-                const value = `${generateRandomName(cssElementNum)}`;
-                globalClassMap.set(name, value);
-            }
-            for (const name of idNames) {
-                if (globalIdMap.has(name)) continue;
-                cssElementNum++;
-                const value = `${generateRandomName(cssElementNum)}`;
-                globalIdMap.set(name, value);
-            }
-            for (const name of varNames) {
-                if (globalVarMap.has(name)) continue;
-                cssElementNum++;
-                const value = `${generateRandomName(cssElementNum)}`;
-                globalVarMap.set(name, value);
-            }
-        }
+    getMapping(): Map<string, string> {
+        return this.renamer.renames;
     }
 
-    // replace names in css files
-    for (const cssFile of cssFiles) {
-        let cssFileContent = fs.readFileSync(cssFile, "utf8");
+    getMappingJSON(): string {
+        return JSON.stringify(Object.fromEntries(this.getMapping()), null, 2);
+    }
 
-        for (const [original, obfuscated] of globalClassMap) {
-            const classRegex = new RegExp(`\\.(${original})(?![\\w-])`, 'g');
-            cssFileContent = cssFileContent.replace(classRegex, `.${obfuscated}`);
-        }
-        for (const [original, obfuscated] of globalIdMap) {
-            const idRegex = new RegExp(`#(${original})(?![\\w-])`, 'g');
-            cssFileContent = cssFileContent.replace(idRegex, `#${obfuscated}`);
-        }
-        for (const [original, obfuscated] of globalVarMap) {
-            const varRegex = new RegExp(`--(${original})(?![\\w-])`, 'g');
-            cssFileContent = cssFileContent.replace(varRegex, `--${obfuscated}`);
-        }
-        // TODO: test this
-        // replace also in @append classes
-        const appendRegex = /@apply\s+([^;]+);/g;
-        cssFileContent = cssFileContent.replace(appendRegex, (match, p1) => {
-            const updatedClasses = p1.split(/\s+/).map(cls => {
-                return globalClassMap.get(cls) || cls;
-            }).join(' ');
-            return `@apply ${updatedClasses};`;
+    obfuscateCSS(css: string): string {
+        const ast = csstree.parse(css);
+        csstree.walk(ast, (node) => {
+            // Obfuscate class names
+            if (node.type === 'ClassSelector') {
+                const originalName = node.name;
+                const obfuscatedName = this.obfuscateName(originalName);
+                node.name = obfuscatedName;
+            }
+
+            // Obfuscate ID names
+            if (node.type === 'IdSelector') {
+                const originalName = node.name;
+                const obfuscatedName = this.obfuscateName(originalName);
+                node.name = obfuscatedName;
+            }
+
+            // Obfuscate custom property names (CSS variables)
+            if (node.type === 'Declaration' && node.property.startsWith('--')) {
+                const originalName = node.property;
+                const obfuscatedName = this.obfuscateName(originalName);
+                node.property = obfuscatedName;
+            }
+
+            // Obfuscate var() references
+            if (node.type === 'Function' && node.name === 'var' && node.children.size > 0) {
+                const firstChild = node.children.first;
+                if (firstChild && firstChild.type === 'Identifier' && firstChild.name.startsWith('--')) {
+                    const originalName = firstChild.name;
+                    const obfuscatedName = this.obfuscateName(originalName);
+                    firstChild.name = obfuscatedName;
+                }
+            }
+
+            // TODO: Obfuscate keyframe names
         });
 
-        fs.writeFileSync(cssFile, cssFileContent, "utf8");
+        // Return obfuscated CSS
+        return csstree.generate(ast);
     }
 
-    // replace names in html files
-    for (const htmlFile of htmlFiles) {
-        let htmlFileContent = fs.readFileSync(htmlFile, "utf8");
-
-        for (const [original, obfuscated] of globalClassMap) {
-            const classAttrRegex = new RegExp(`class=["']([^"']*\\b${original}\\b[^"']*)["']`, 'g');
-            htmlFileContent = htmlFileContent.replace(classAttrRegex, (match, p1) => {
-                const updatedClasses = p1.split(/\s+/).map(cls => cls === original ? obfuscated : cls).join(' ');
-                return `class="${updatedClasses}"`;
-            });
-        }
-        for (const [original, obfuscated] of globalIdMap) {
-            const idAttrRegex = new RegExp(`id=["']${original}["']`, 'g');
-            htmlFileContent = htmlFileContent.replace(idAttrRegex, `id="${obfuscated}"`);
-        }
-        for (const [original, obfuscated] of globalVarMap) {
-            const varRegex = new RegExp(`--(${original})(?![\\w-])`, 'g');
-            htmlFileContent = htmlFileContent.replace(varRegex, `--${obfuscated}`);
-        }
-
-        // replace in style tags
+    private obfuscateCSSInHtml(html: string): string {
         const styleTagRegex = /<style[^>]*>([\s\S]*?)<\/style>/gi;
-        htmlFileContent = htmlFileContent.replace(styleTagRegex, (match, p1) => {
+        return html.replace(styleTagRegex, (match, p1) => {
             let styleContent = p1;
-
-            for (const [original, obfuscated] of globalClassMap) {
-                const classRegex = new RegExp(`\\.(${original})(?![\\w-])`, 'g');
-                styleContent = styleContent.replace(classRegex, `.${obfuscated}`);
-            }
-            for (const [original, obfuscated] of globalIdMap) {
-                const idRegex = new RegExp(`#(${original})(?![\\w-])`, 'g');
-                styleContent = styleContent.replace(idRegex, `#${obfuscated}`);
-            }
-            for (const [original, obfuscated] of globalVarMap) {
-                const varRegex = new RegExp(`--(${original})(?![\\w-])`, 'g');
-                styleContent = styleContent.replace(varRegex, `--${obfuscated}`);
-            }
-
+            styleContent = this.obfuscateCSS(styleContent);
             return `<style>${styleContent}</style>`;
         });
-
-        fs.writeFileSync(htmlFile, htmlFileContent, "utf8");
     }
 
-    // return mapping
-    return new Map([
-        ...globalClassMap,
-        ...globalIdMap,
-        ...globalVarMap,
-    ]);
+    private replaceNamesInHtml(html: string): string {
+        let result = html;
+        for (const [originalName, obfuscatedName] of this.getMapping()) {
+            // Replace class names
+            const classRegex = new RegExp(`class=["']([^"']*\\b${originalName}\\b[^"']*)["']`, 'g');
+            result = result.replace(classRegex, (match, p1) => {
+                const updatedClasses = p1.split(/\s+/).map(cls => cls === originalName ? obfuscatedName : cls).join(' ');
+                return `class="${updatedClasses}"`;
+            });
+
+            // Replace id names
+            const idRegex = new RegExp(`id=["']${originalName}["']`, 'g');
+            result = result.replace(idRegex, `id="${obfuscatedName}"`);
+
+            // Replace CSS variable references in style attributes
+            const varRegex = new RegExp(`--(${originalName})(?![\\w-])`, 'g');
+            result = result.replace(varRegex, `--${obfuscatedName}`);
+        }
+        return result;
+    }
+
+    async obfuscateAndExport(input: string, output: string) {
+        if (input != output) {
+            // copy files from input dir to output dir
+            if (fs.existsSync(output)) {
+                fs.rmSync(output, { recursive: true, force: true });
+            }
+            fs.mkdirSync(output, { recursive: true });
+            fs.cpSync(input, output, { recursive: true });
+        }
+
+        const htmlFiles = await globby(['**/*.html'], { cwd: output, absolute: true });
+        const cssFiles = await globby(['**/*.css'], { cwd: output, absolute: true });
+
+        // Obfuscate CSS files
+        for (const cssFile of cssFiles) {
+            const cssContent = fs.readFileSync(cssFile, 'utf-8');
+            const obfuscatedCss = this.obfuscateCSS(cssContent);
+            fs.writeFileSync(cssFile, obfuscatedCss, 'utf-8');
+        }
+
+        // Obfuscate CSS in <style> tag in HTML files and export obfuscated names to HTML
+        for (const htmlFile of htmlFiles) {
+            let htmlContent = fs.readFileSync(htmlFile, 'utf-8');
+            htmlContent = this.obfuscateCSSInHtml(htmlContent);
+            htmlContent = this.replaceNamesInHtml(htmlContent);
+            fs.writeFileSync(htmlFile, htmlContent, 'utf-8');
+        }
+    }
 }

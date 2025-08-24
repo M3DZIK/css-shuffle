@@ -1,14 +1,18 @@
-import { obfuscate } from "./obfuscator.js";
+import { Obfuscator } from "./obfuscator.js";
 
 async function main() {
-    const mapping = await obfuscate("./example", "./example-dist");
+    const obfuscator = new Obfuscator();
+
+    await obfuscator.obfuscateAndExport("./example", "./example-dist");
 
     console.log("Obfuscation mapping:");
-    for (const [original, obfuscated] of mapping) {
+    for (const [original, obfuscated] of obfuscator.getMapping()) {
         console.log(`${original} -> ${obfuscated}`);
     }
+
+    console.log(obfuscator.getMappingJSON());
 }
 
 main();
 
-export default obfuscate;
+export { Obfuscator } from "./obfuscator.js";
