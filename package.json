@@ -1,0 +1,32 @@
+{
+  "name": "css-shuffle",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test:example": "tsc && node ./dist/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/M3DZIK/css-shuffle.git"
+  },
+  "author": "Oskar Karpiński",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/M3DZIK/css-shuffle/issues"
+  },
+  "homepage": "https://github.com/M3DZIK/css-shuffle#readme",
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "globby": "^14.1.0",
+    "nanoid": "^5.1.5",
+    "postcss": "^8.5.6",
+    "postcss-selector-parser": "^7.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2"
+  }
+}
