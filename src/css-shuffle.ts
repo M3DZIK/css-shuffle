@@ -42,18 +42,18 @@ export class CSSShuffle {
 
             // Obfuscate custom property names (CSS variables)
             if (node.type === 'Declaration' && node.property.startsWith('--')) {
-                const originalName = node.property;
+                const originalName = node.property.replace('--', '');
                 const obfuscatedName = this.obfuscateName(originalName);
-                node.property = obfuscatedName;
+                node.property = `--${obfuscatedName}`;
             }
 
             // Obfuscate var() references
             if (node.type === 'Function' && node.name === 'var' && node.children.size > 0) {
                 const firstChild = node.children.first;
                 if (firstChild && firstChild.type === 'Identifier' && firstChild.name.startsWith('--')) {
-                    const originalName = firstChild.name;
+                    const originalName = firstChild.name.replace('--', '');
                     const obfuscatedName = this.obfuscateName(originalName);
-                    firstChild.name = obfuscatedName;
+                    firstChild.name = `--${obfuscatedName}`;
                 }
             }
 
