@@ -3,9 +3,13 @@ import { globby } from "globby";
 import * as csstree from "css-tree";
 
 import { Renamer } from "./renamer.js";
+import { Table } from "console-table-printer";
+import prettyBytes from "pretty-bytes";
 
-export class Obfuscator {
+export class CSSShuffle {
     private renamer = new Renamer();
+
+    private readonly stats = new Table();
 
     private obfuscateName(originalName: string): string {
         return this.renamer.rename(originalName);
@@ -62,7 +66,7 @@ export class Obfuscator {
 
     private obfuscateCSSInHtml(html: string): string {
         const styleTagRegex = /<style[^>]*>([\s\S]*?)<\/style>/gi;
-        return html.replace(styleTagRegex, (match, p1) => {
+        return html.replace(styleTagRegex, (_, p1) => {
             let styleContent = p1;
             styleContent = this.obfuscateCSS(styleContent);
             return `<style>${styleContent}</style>`;
@@ -74,7 +78,7 @@ export class Obfuscator {
         for (const [originalName, obfuscatedName] of this.getMapping()) {
             // Replace class names
             const classRegex = new RegExp(`class=["']([^"']*\\b${originalName}\\b[^"']*)["']`, 'g');
-            result = result.replace(classRegex, (match, p1) => {
+            result = result.replace(classRegex, (_, p1) => {
                 const updatedClasses = p1.split(/\s+/).map(cls => cls === originalName ? obfuscatedName : cls).join(' ');
                 return `class="${updatedClasses}"`;
             });
@@ -90,32 +94,66 @@ export class Obfuscator {
         return result;
     }
 
-    async obfuscateAndExport(input: string, output: string) {
-        if (input != output) {
-            // copy files from input dir to output dir
-            if (fs.existsSync(output)) {
-                fs.rmSync(output, { recursive: true, force: true });
-            }
-            fs.mkdirSync(output, { recursive: true });
-            fs.cpSync(input, output, { recursive: true });
+    async obfuscate(input: string, dist?: string) {
+        if (dist == undefined) {
+            dist = input
         }
 
-        const htmlFiles = await globby(['**/*.html'], { cwd: output, absolute: true });
-        const cssFiles = await globby(['**/*.css'], { cwd: output, absolute: true });
+        if (input != dist) {
+            // copy files from input dir to output dir
+            if (fs.existsSync(dist)) {
+                fs.rmSync(dist, { recursive: true, force: true });
+            }
+            fs.mkdirSync(dist, { recursive: true });
+            fs.cpSync(input, dist, { recursive: true });
+        }
+
+        const htmlFiles = await globby(['**/*.html'], { cwd: dist, absolute: true });
+        const cssFiles = await globby(['**/*.css'], { cwd: dist, absolute: true });
 
         // Obfuscate CSS files
         for (const cssFile of cssFiles) {
             const cssContent = fs.readFileSync(cssFile, 'utf-8');
             const obfuscatedCss = this.obfuscateCSS(cssContent);
             fs.writeFileSync(cssFile, obfuscatedCss, 'utf-8');
+
+            const oldSize = cssContent.length
+            const newSize = obfuscatedCss.length
+            if (oldSize != newSize) {
+                const fileName = cssFile.replace(dist, '');
+
+                this.stats.addRow({
+                    File: fileName,
+                    'Original Size': prettyBytes(oldSize),
+                    'New Size': prettyBytes(newSize),
+                    Reduced: `${(newSize / oldSize) * 100}%`,
+                });
+            }
         }
 
         // Obfuscate CSS in <style> tag in HTML files and export obfuscated names to HTML
         for (const htmlFile of htmlFiles) {
-            let htmlContent = fs.readFileSync(htmlFile, 'utf-8');
-            htmlContent = this.obfuscateCSSInHtml(htmlContent);
-            htmlContent = this.replaceNamesInHtml(htmlContent);
-            fs.writeFileSync(htmlFile, htmlContent, 'utf-8');
+            const htmlContent = fs.readFileSync(htmlFile, 'utf-8');
+            let newHtmlContent = this.obfuscateCSSInHtml(htmlContent);
+            newHtmlContent = this.replaceNamesInHtml(htmlContent);
+            fs.writeFileSync(htmlFile, newHtmlContent, 'utf-8');
+
+            const oldSize = htmlContent.length
+            const newSize = newHtmlContent.length
+            if (oldSize != newSize) {
+                const fileName = htmlFile.replace(dist, '');
+
+                this.stats.addRow({
+                    File: fileName,
+                    'Original Size': prettyBytes(oldSize),
+                    'New Size': prettyBytes(newSize),
+                    Reduced: `${((newSize - newSize) / oldSize) * 100}%`,
+                });
+            }
         }
+    }
+
+    printStatsTable() {
+        this.stats.printTable()
     }
 }

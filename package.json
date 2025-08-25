@@ -19,12 +19,15 @@
   },
   "homepage": "https://github.com/M3DZIK/css-shuffle#readme",
   "dependencies": {
+    "console-table-printer": "^2.14.6",
     "css-tree": "^3.1.0",
-    "globby": "^14.1.0"
+    "globby": "^14.1.0",
+    "pretty-bytes": "^7.0.1"
   },
   "devDependencies": {
     "@types/css-tree": "^2.3.10",
     "@types/node": "^24.3.0",
+    "astro": "^5.13.3",
     "typescript": "^5.9.2"
   }
 }

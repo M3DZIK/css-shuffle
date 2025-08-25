@@ -16,7 +16,7 @@
 ## Installation
 
 ```sh
-git clone https://github.com/your-username/css-shuffle.git
+git clone https://github.com/M3DZIK/css-shuffle.git
 cd css-shuffle
 npm install
 ```
@@ -25,11 +25,30 @@ npm install
 
 ## Usage
 
-```js
-import { Obfuscator } from "./src/obfuscator.js";
+### Astro
 
-const obfuscator = new Obfuscator();
-await obfuscator.obfuscateAndExport("input-directory", "output-directory");
+`astro.config.mjs`
+
+```js
+// ...
+import { astro as cssShuffle } from 'css-shuffle'
+
+export default defineConfig({
+    // ...
+    integrations: [
+        // ...
+        cssShuffle()
+    ]
+});
+```
+
+### Custom
+
+```js
+import { CSSShuffle } from "css-shuffle";
+
+const cssShuffler = new CSSShuffle();
+await cssShuffler.obfuscate("./input-directory", "./output-directory");
 ```
 
 - `input-directory`: Path to your source files (HTML and CSS)
@@ -38,7 +57,7 @@ await obfuscator.obfuscateAndExport("input-directory", "output-directory");
 **Example:**
 
 ```js
-await obfuscator.obfuscateAndExport("./public", "./dist");
+await cssShuffler.obfuscate("./public", "./dist");
 ```
 
 ---
@@ -57,7 +76,7 @@ await obfuscator.obfuscateAndExport("./public", "./dist");
 You can get the mapping of original to obfuscated names:
 
 ```js
-console.log(obfuscator.getMappingJSON());
+console.log(cssShuffler.getMappingJSON());
 ```
 
 ---
