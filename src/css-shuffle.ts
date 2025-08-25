@@ -12,7 +12,9 @@ import { Renamer } from "./renamer.js";
 export class CSSShuffle {
     private renamer = new Renamer();
 
-    private readonly stats = new Table();
+    // private readonly stats = new Table();
+
+    private readonly stats = new Map<string, {orginalSize: number, newSize: number}>()
 
     private obfuscateName(originalName: string): string {
         return this.renamer.rename(originalName);
@@ -127,13 +129,10 @@ export class CSSShuffle {
             const newSize = obfuscatedCss.length
             if (oldSize != newSize) {
                 const fileName = cssFile.replace(dist, '');
-
-                this.stats.addRow({
-                    File: fileName,
-                    'Original Size': prettyBytes(oldSize),
-                    'New Size': prettyBytes(newSize),
-                    Reduced: `${(((oldSize - newSize) / oldSize) * 100) | 0}%`,
-                });
+                this.stats.set(fileName, {
+                    orginalSize: oldSize,
+                    newSize: newSize
+                })
             }
         }
 
@@ -143,19 +142,15 @@ export class CSSShuffle {
             let obfuscatedHtmlContent = this.obfuscateCSSInHtml(htmlContent);
             fs.writeFileSync(htmlFile, obfuscatedHtmlContent, 'utf-8');
 
-            // TODO: stats for htmls
-            // const oldSize = htmlContent.length
-            // const newSize = newHtmlContent.length
-            // if (oldSize != newSize) {
-            //     const fileName = htmlFile.replace(dist, '');
-
-            //     this.stats.addRow({
-            //         File: fileName,
-            //         'Original Size': prettyBytes(oldSize),
-            //         'New Size': prettyBytes(newSize),
-            //         Reduced: `${(((oldSize - newSize) / oldSize) * 100) | 0}%`,
-            //     });
-            // }
+            const oldSize = htmlContent.length
+            const newSize = obfuscatedHtmlContent.length
+            if (oldSize != newSize) {
+                const fileName = htmlFile.replace(dist, '');
+                this.stats.set(fileName, {
+                    orginalSize: oldSize,
+                    newSize: newSize
+                })
+            }
         }
 
         // Export export obfuscated names to HTML
@@ -164,23 +159,35 @@ export class CSSShuffle {
             let newHtmlContent = this.replaceNamesInHtml(htmlContent);
             fs.writeFileSync(htmlFile, newHtmlContent, 'utf-8');
 
-            // TODO: stats for htmls
-            // const oldSize = htmlContent.length
-            // const newSize = newHtmlContent.length
-            // if (oldSize != newSize) {
-            //     const fileName = htmlFile.replace(dist, '');
+            let orginalSize = htmlContent.length
+            const newSize = newHtmlContent.length
+            if (orginalSize != newSize) {
+                const fileName = htmlFile.replace(dist, '');
 
-            //     this.stats.addRow({
-            //         File: fileName,
-            //         'Original Size': prettyBytes(oldSize),
-            //         'New Size': prettyBytes(newSize),
-            //         Reduced: `${(((oldSize - newSize) / oldSize) * 100) | 0}%`,
-            //     });
-            // }
+                // this file maybe already obfuscated so get the really orginal file size
+                const fileStats = this.stats.get(fileName)
+                if (fileStats != undefined) orginalSize = fileStats.orginalSize
+
+                this.stats.set(fileName, {
+                    orginalSize: orginalSize,
+                    newSize: newSize
+                })
+            }
         }
     }
 
     printStatsTable() {
-        this.stats.printTable()
+        const table = new Table();
+
+        this.stats.forEach((stats, file) => {
+            table.addRow({
+                File: file,
+                'Original Size': prettyBytes(stats.orginalSize),
+                'New Size': prettyBytes(stats.newSize),
+                Reduced: `${(((stats.orginalSize - stats.newSize) / stats.orginalSize) * 100) | 0}%`,
+            })
+        });
+
+        table.printTable()
     }
 }
