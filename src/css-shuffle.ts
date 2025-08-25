@@ -126,7 +126,7 @@ export class CSSShuffle {
                     File: fileName,
                     'Original Size': prettyBytes(oldSize),
                     'New Size': prettyBytes(newSize),
-                    Reduced: `${(newSize / oldSize) * 100}%`,
+                    Reduced: `${(((oldSize - newSize) / oldSize) * 100) | 0}%`,
                 });
             }
         }
@@ -147,7 +147,7 @@ export class CSSShuffle {
                     File: fileName,
                     'Original Size': prettyBytes(oldSize),
                     'New Size': prettyBytes(newSize),
-                    Reduced: `${((newSize - newSize) / oldSize) * 100}%`,
+                    Reduced: `${(((oldSize - newSize) / oldSize) * 100) | 0}%`,
                 });
             }
         }
