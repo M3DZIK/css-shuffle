@@ -16,9 +16,7 @@
 ## Installation
 
 ```sh
-git clone https://github.com/M3DZIK/css-shuffle.git
-cd css-shuffle
-npm install
+npm install css-shuffle
 ```
 
 ---
