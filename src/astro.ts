@@ -14,6 +14,8 @@ export default function cssShuffleIntegration(): AstroIntegration {
 
                 await cssShuffler.obfuscate(dist);
                 cssShuffler.printStatsTable();
+
+                cssShuffler.saveMappingJSON(`${dist}/../mapping.json`)
             },
         },
     };

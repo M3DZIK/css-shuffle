@@ -1,10 +1,13 @@
 import fs from "fs";
 import { globby } from "globby";
-import * as csstree from "css-tree";
-
-import { Renamer } from "./renamer.js";
+import * as cheerio from "cheerio";
 import { Table } from "console-table-printer";
 import prettyBytes from "pretty-bytes";
+import postcss, { Root } from "postcss";
+import selectorParser from "postcss-selector-parser";
+import valueParser from "postcss-value-parser";
+
+import { Renamer } from "./renamer.js";
 
 export class CSSShuffle {
     private renamer = new Renamer();
@@ -15,6 +18,10 @@ export class CSSShuffle {
         return this.renamer.rename(originalName);
     }
 
+    private getObfuscateName(key: string): string {
+        return this.renamer.get(key)
+    }
+
     getMapping(): Map<string, string> {
         return this.renamer.renames;
     }
@@ -23,45 +30,37 @@ export class CSSShuffle {
         return JSON.stringify(Object.fromEntries(this.getMapping()), null, 2);
     }
 
-    obfuscateCSS(css: string): string {
-        const ast = csstree.parse(css);
-        csstree.walk(ast, (node) => {
-            // Obfuscate class names
-            if (node.type === 'ClassSelector') {
-                const originalName = node.name;
-                const obfuscatedName = this.obfuscateName(originalName);
-                node.name = obfuscatedName;
-            }
+    saveMappingJSON(path: string) {
+        const mapping = this.getMappingJSON()
 
-            // Obfuscate ID names
-            if (node.type === 'IdSelector') {
-                const originalName = node.name;
-                const obfuscatedName = this.obfuscateName(originalName);
-                node.name = obfuscatedName;
-            }
+        fs.writeFileSync(path, mapping)
+    }
 
-            // Obfuscate custom property names (CSS variables)
-            if (node.type === 'Declaration' && node.property.startsWith('--')) {
-                const originalName = node.property.replace('--', '');
-                const obfuscatedName = this.obfuscateName(originalName);
-                node.property = `--${obfuscatedName}`;
-            }
+    async obfuscateCSS(css: string): Promise<string> {
+        return await postcss([
+            (root: Root) => {
+                root.walkRules(rule => {
+                    rule.selector = selectorParser(selectors => {
+                        selectors.walkClasses(node => { node.value = this.obfuscateName(node.value) });
+                        selectors.walkIds(node => { node.value = this.obfuscateName(node.value) });
+                        }).processSync(rule.selector);
+                    });
 
-            // Obfuscate var() references
-            if (node.type === 'Function' && node.name === 'var' && node.children.size > 0) {
-                const firstChild = node.children.first;
-                if (firstChild && firstChild.type === 'Identifier' && firstChild.name.startsWith('--')) {
-                    const originalName = firstChild.name.replace('--', '');
-                    const obfuscatedName = this.obfuscateName(originalName);
-                    firstChild.name = `--${obfuscatedName}`;
+                    root.walkDecls(decl => {
+                        if (decl.prop.startsWith("--")) {
+                            decl.prop = `--${this.obfuscateName(decl.prop.substring(2))}`
+                        }
+
+                        const parsedValue = valueParser(decl.value);
+                        parsedValue.walk(node => {
+                        if (node.type === 'function' && node.value === 'var' && node.nodes[0]) {
+                            node.nodes[0].value = `--${this.obfuscateName(node.nodes[0].value.substring(2))}`;
+                        }
+                        });
+                        decl.value = parsedValue.toString();
+                    })
                 }
-            }
-
-            // TODO: Obfuscate keyframe names
-        });
-
-        // Return obfuscated CSS
-        return csstree.generate(ast);
+            ]).process(css, { from: undefined }).then(result => result.css);
     }
 
     private obfuscateCSSInHtml(html: string): string {
@@ -74,24 +73,31 @@ export class CSSShuffle {
     }
 
     private replaceNamesInHtml(html: string): string {
-        let result = html;
-        for (const [originalName, obfuscatedName] of this.getMapping()) {
-            // Replace class names
-            const classRegex = new RegExp(`class=["']([^"']*\\b${originalName}\\b[^"']*)["']`, 'g');
-            result = result.replace(classRegex, (_, p1) => {
-                const updatedClasses = p1.split(/\s+/).map(cls => cls === originalName ? obfuscatedName : cls).join(' ');
-                return `class="${updatedClasses}"`;
-            });
+        const $ = cheerio.load(html);
 
-            // Replace id names
-            const idRegex = new RegExp(`id=["']${originalName}["']`, 'g');
-            result = result.replace(idRegex, `id="${obfuscatedName}"`);
+        $('[class]').each((_, e) => {
+            const classes = $(e).attr('class').split(/\s+/).filter(Boolean);
+            const newClasses = classes.map(cls => this.getObfuscateName(cls) || cls);
+            $(e).attr('class', newClasses.join(' '));
+        })
 
-            // Replace CSS variable references in style attributes
-            const varRegex = new RegExp(`--(${originalName})(?![\\w-])`, 'g');
-            result = result.replace(varRegex, `--${obfuscatedName}`);
-        }
-        return result;
+        $('[id]').each((_, e) => {
+            const id = $(e).attr('id');
+            $(e).attr('id', this.getObfuscateName(id));
+        })
+
+        $('[for]').each((_, e) => {
+            const id = $(e).attr('for');
+            $(e).attr('for', this.getObfuscateName(id));
+        })
+
+        $('a[href^="#"]').each((_, e) => {
+            const href = $(e).attr('href');
+            const target = href.slice(1);
+            $(e).attr('href', '#' + this.getObfuscateName(target));
+        });
+
+        return $.html();
     }
 
     async obfuscate(input: string, dist?: string) {
@@ -114,7 +120,7 @@ export class CSSShuffle {
         // Obfuscate CSS files
         for (const cssFile of cssFiles) {
             const cssContent = fs.readFileSync(cssFile, 'utf-8');
-            const obfuscatedCss = this.obfuscateCSS(cssContent);
+            const obfuscatedCss = await this.obfuscateCSS(cssContent);
             fs.writeFileSync(cssFile, obfuscatedCss, 'utf-8');
 
             const oldSize = cssContent.length
@@ -131,25 +137,46 @@ export class CSSShuffle {
             }
         }
 
-        // Obfuscate CSS in <style> tag in HTML files and export obfuscated names to HTML
+        // Obfuscate CSS in <style> tag in HTML files
         for (const htmlFile of htmlFiles) {
             const htmlContent = fs.readFileSync(htmlFile, 'utf-8');
-            let newHtmlContent = this.obfuscateCSSInHtml(htmlContent);
-            newHtmlContent = this.replaceNamesInHtml(htmlContent);
+            let obfuscatedHtmlContent = this.obfuscateCSSInHtml(htmlContent);
+            fs.writeFileSync(htmlFile, obfuscatedHtmlContent, 'utf-8');
+
+            // TODO: stats for htmls
+            // const oldSize = htmlContent.length
+            // const newSize = newHtmlContent.length
+            // if (oldSize != newSize) {
+            //     const fileName = htmlFile.replace(dist, '');
+
+            //     this.stats.addRow({
+            //         File: fileName,
+            //         'Original Size': prettyBytes(oldSize),
+            //         'New Size': prettyBytes(newSize),
+            //         Reduced: `${(((oldSize - newSize) / oldSize) * 100) | 0}%`,
+            //     });
+            // }
+        }
+
+        // Export export obfuscated names to HTML
+        for (const htmlFile of htmlFiles) {
+            const htmlContent = fs.readFileSync(htmlFile, 'utf-8');
+            let newHtmlContent = this.replaceNamesInHtml(htmlContent);
             fs.writeFileSync(htmlFile, newHtmlContent, 'utf-8');
 
-            const oldSize = htmlContent.length
-            const newSize = newHtmlContent.length
-            if (oldSize != newSize) {
-                const fileName = htmlFile.replace(dist, '');
+            // TODO: stats for htmls
+            // const oldSize = htmlContent.length
+            // const newSize = newHtmlContent.length
+            // if (oldSize != newSize) {
+            //     const fileName = htmlFile.replace(dist, '');
 
-                this.stats.addRow({
-                    File: fileName,
-                    'Original Size': prettyBytes(oldSize),
-                    'New Size': prettyBytes(newSize),
-                    Reduced: `${(((oldSize - newSize) / oldSize) * 100) | 0}%`,
-                });
-            }
+            //     this.stats.addRow({
+            //         File: fileName,
+            //         'Original Size': prettyBytes(oldSize),
+            //         'New Size': prettyBytes(newSize),
+            //         Reduced: `${(((oldSize - newSize) / oldSize) * 100) | 0}%`,
+            //     });
+            // }
         }
     }
 

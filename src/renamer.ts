@@ -31,4 +31,10 @@ export class Renamer {
         this.nextIndex++;
         return name;
     }
+
+    get(key: string): string {
+        let value = this.renames.get(key)
+        if (value == undefined) return key
+        return value
+    }
 }
